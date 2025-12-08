@@ -1,5 +1,7 @@
 from flask import Flask, send_file, jsonify, request
 from picamera2 import Picamera2
+from picamera2.encoders import H264Encoder
+from picamera2.outputs import FfmpegOutput
 import os
 import subprocess
 import threading
@@ -27,13 +29,13 @@ def record_video():
 
         camera = Picamera2()
         config = camera.create_video_configuration(
-            main={"size": (VIDEO_WIDTH, VIDEO_HEIGHT), "format": "RGB888"},
-            encode="main"
+            main={"size": (VIDEO_WIDTH, VIDEO_HEIGHT)}
         )
         camera.configure(config)
+        
+        encoder = H264Encoder()
         camera.start()
-
-        camera.start_recording(filename=TEMP_PATH)
+        camera.start_recording(encoder, TEMP_PATH)
         recording = True
 
         while recording:
