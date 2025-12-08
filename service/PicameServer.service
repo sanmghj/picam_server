@@ -1,0 +1,14 @@
+[Unit]
+Description=PiCamera Flask API (System Python)
+After=network.target
+
+[Service]
+Type=simple
+User=technonia
+WorkingDirectory=/home/technonia/picam_server
+ExecStart=/usr/bin/python3 main.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=mult-user.target
