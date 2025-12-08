@@ -32,7 +32,7 @@ def record_video():
             main={"size": (VIDEO_WIDTH, VIDEO_HEIGHT)}
         )
         camera.configure(config)
-        
+
         encoder = H264Encoder()
         camera.start()
         camera.start_recording(encoder, TEMP_PATH)
@@ -133,6 +133,10 @@ def set_config():
         "status": "config updated",
         "new_config": f"{VIDEO_WIDTH}x{VIDEO_HEIGHT}@{VIDEO_FPS}fps"
     }), 200
+
+@app.route('/status', methods=['GET'])
+def get_status():
+    return jsonify({"status": 0, "msg": "server alive"}), 200
 
 @app.route('/test', methods=['GET'])
 def test_camera():
