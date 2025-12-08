@@ -26,9 +26,12 @@ def record_video():
             os.mkdir(VIDEO_DIR)
 
         camera = Picamera2()
-        config = camera.create_video_configuration(main={"size":(VIDEO_WIDTH, VIDEO_HEIGHT)})
+        config = camera.create_video_configuration(
+            main={"size": (VIDEO_WIDTH, VIDEO_HEIGHT), "format": "RGB888"},
+            encode="main"
+        )
         camera.configure(config)
-        camera.start()  # 이 줄 추가
+        camera.start()
 
         camera.start_recording(filename=TEMP_PATH)
         recording = True
@@ -38,7 +41,6 @@ def record_video():
 
         camera.stop_recording()
         camera.close()
-        recording = False
 
         subprocess.run(
             [
@@ -58,6 +60,7 @@ def record_video():
 
     except Exception as e:
         print(f"video recording error: {e}")
+        recording = False
     finally:
         recording = False
         if camera:
@@ -70,7 +73,9 @@ def record_video():
 def start_recording():
     global recording
     if not recording:
+        recording = True  # 먼저 플래그 설정
         threading.Thread(target=record_video, daemon=True).start()
+        time.sleep(0.5)  # 카메라 초기화 대기
         return jsonify({"status":0, "msg":{"size":f"{VIDEO_WIDTH}x{VIDEO_HEIGHT}", "fps":f"{VIDEO_FPS}"}}),200
     return jsonify({"status":1, "msg":"already recording"}),400
 
