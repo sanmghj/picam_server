@@ -22,32 +22,33 @@ recording = False
 def record_video():
     global camera, recording
     try:
-        if os.path.exists(VIDEO_DIR):
+        if not os.path.exists(VIDEO_DIR):
             os.mkdir(VIDEO_DIR)
-        
+
         camera = Picamera2()
         config = camera.create_video_configuration(main={"size":(VIDEO_WIDTH, VIDEO_HEIGHT)})
         camera.configure(config)
+        camera.start()  # 이 줄 추가
 
         camera.start_recording(filename=TEMP_PATH)
         recording = True
 
         while recording:
             time.sleep(0.1)
-        
+
         camera.stop_recording()
         camera.close()
         recording = False
 
         subprocess.run(
             [
-                'ffmpeg', 
+                'ffmpeg',
                 '-i',
                 TEMP_PATH,
                 '-c:v',
                 'copy',
                 VIDEO_PATH,
-                '-y'        
+                '-y'
             ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
@@ -103,23 +104,23 @@ def get_config():
 @app.route('/setconfig', methods=['POST'])
 def set_config():
     global VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_FPS
-    
+
     if recording:
         return jsonify({"error": "stop recording first"}), 400
-    
+
     data = request.get_json()
-    
+
     new_width = data.get('width', VIDEO_WIDTH)
     new_height = data.get('height', VIDEO_HEIGHT)
     new_fps = data.get('fps', VIDEO_FPS)
-    
+
     valid_resolutions = [(640,480), (1280,720), (1920,1080)]
     if (new_width, new_height) not in valid_resolutions:
         return jsonify({"error": "invalid resolution, use: 640x480, 1280x720, 1920x1080"}), 400
-    
+
     if new_fps not in [25, 30]:
         return jsonify({"error": "fps must be 25 or 30"}), 400
-    
+
     VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_FPS = new_width, new_height, new_fps
     return jsonify({
         "status": "config updated",
@@ -130,10 +131,13 @@ def set_config():
 def test_camera():
     try:
         picam2 = Picamera2()
+        config = picam2.create_still_configuration()
+        picam2.configure(config)
         picam2.start()
         time.sleep(2)
         picam2.capture_file("test.jpg")
         picam2.stop()
+        picam2.close()
         return send_file("test.jpg", as_attachment=True)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
