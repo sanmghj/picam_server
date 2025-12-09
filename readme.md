@@ -150,15 +150,6 @@ Content-Type: application/json
 }
 ```
 
-**지원 해상도:**
-- `640x480`
-- `1280x720`
-- `1920x1080`
-
-**지원 FPS:**
-- `25`
-- `30`
-
 **응답:**
 ```json
 {
@@ -245,5 +236,20 @@ GET /download
 **응답:**
 - 성공: `camera_video.mp4` 파일 다운로드
 - 실패: `{"status": 1, "msg": "no video"}`
+
+---
+
+### 7. POST `/status`
+
+서버 동작 상태 확인
+
+**요청:**
+```
+POST /test
+```
+
+**응답:**
+- 성공: `{"msg": "server alive","status": 0}`
+- 실패: `응답없음`
 
 ---
