@@ -249,7 +249,24 @@ POST /test
 ```
 
 **응답:**
-- 성공: `{"msg": "server alive","status": 0}`
+- 성공: `{"msg": "idle","status": 0}`,
+       `{"msg": "converting video","status": 0}`,
+       `{"msg": "recording","status": 0}`
 - 실패: `응답없음`
+
+---
+
+### 8. GET `/download/raw`
+
+녹화된 비디오 다운로드
+
+**요청:**
+```
+GET /download/raw
+```
+
+**응답:**
+- 성공: `camera_video.h264` 파일 다운로드
+- 실패: `{"status": 1, "msg": "no raw video"}`
 
 ---

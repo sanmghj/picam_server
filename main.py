@@ -20,9 +20,10 @@ VIDEO_FPS = 30
 
 camera = None
 recording = False
+converting = False  # 변환 상태 추가
 
 def record_video():
-    global camera, recording
+    global camera, recording, converting
     try:
         if not os.path.exists(VIDEO_DIR):
             os.mkdir(VIDEO_DIR)
@@ -43,7 +44,11 @@ def record_video():
 
         camera.stop_recording()
         camera.close()
+        recording = False
 
+        # 변환 시작
+        converting = True
+        print("Starting video conversion...")
         subprocess.run(
             [
                 'ffmpeg',
@@ -57,14 +62,16 @@ def record_video():
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
-        if os.path.exists(TEMP_PATH):
-            os.remove(TEMP_PATH)
+        converting = False
+        print("Video conversion completed")
 
     except Exception as e:
         print(f"video recording error: {e}")
         recording = False
+        converting = False
     finally:
         recording = False
+        converting = False
         if camera:
             try:
                 camera.close()
@@ -87,11 +94,14 @@ def stop_recording():
     if recording:
         recording = False
         time.sleep(1)
-        return jsonify({"status":0, "msg":"stopped"}),200
+        return jsonify({"status":0, "msg":"stopped, converting..."}),200
     return jsonify({"status":1, "msg":"not recording"}),400
 
 @app.route('/download', methods=['GET'])
 def download_video():
+    """MP4 변환된 파일 다운로드 (변환 대기 필요)"""
+    if converting:
+        return jsonify({"status":1, "msg":"video is converting, please wait"}),400
     if os.path.exists(VIDEO_PATH):
         return send_file(
             VIDEO_PATH,
@@ -99,6 +109,19 @@ def download_video():
             download_name=f"camera_video.{VIDEO_FORMAT}"
         )
     return jsonify({"status":1, "msg":"no video"}),400
+
+@app.route('/download/raw', methods=['GET'])
+def download_raw_video():
+    """H264 원본 파일 즉시 다운로드 (변환 불필요)"""
+    if recording:
+        return jsonify({"status":1, "msg":"still recording"}),400
+    if os.path.exists(TEMP_PATH):
+        return send_file(
+            TEMP_PATH,
+            as_attachment=True,
+            download_name="camera_video.h264"
+        )
+    return jsonify({"status":1, "msg":"no raw video"}),400
 
 @app.route('/getconfig', methods=['GET'])
 def get_config():
@@ -134,9 +157,14 @@ def set_config():
         "new_config": f"{VIDEO_WIDTH}x{VIDEO_HEIGHT}@{VIDEO_FPS}fps"
     }), 200
 
-@app.route('/status', methods=['POST'])
+@app.route('/status', methods=['GET'])
 def get_status():
-    return jsonify({"status": 0, "msg": "server alive"}), 200
+    if converting:
+        return jsonify({"status": 0, "msg": "converting video"}), 200
+    elif recording:
+        return jsonify({"status": 0, "msg": "recording"}), 200
+    else:
+        return jsonify({"status": 0, "msg": "idle"}), 200
 
 @app.route('/test', methods=['GET'])
 def test_camera():
