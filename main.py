@@ -134,7 +134,7 @@ def set_config():
         "new_config": f"{VIDEO_WIDTH}x{VIDEO_HEIGHT}@{VIDEO_FPS}fps"
     }), 200
 
-@app.route('/status', methods=['GET'])
+@app.route('/status', methods=['POST'])
 def get_status():
     return jsonify({"status": 0, "msg": "server alive"}), 200
 
