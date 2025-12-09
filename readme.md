@@ -239,13 +239,13 @@ GET /download
 
 ---
 
-### 7. POST `/status`
+### 7. GET `/status`
 
 서버 동작 상태 확인
 
 **요청:**
 ```
-POST /test
+GET /status
 ```
 
 **응답:**
