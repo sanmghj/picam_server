@@ -8,6 +8,7 @@ import subprocess
 import threading
 import time
 import logging
+from logging.handlers import TimedRotatingFileHandler
 from datetime import datetime
 
 app = Flask(__name__)
@@ -31,14 +32,25 @@ LOG_DIR = "log"
 if not os.path.exists(LOG_DIR):
     os.makedirs(LOG_DIR)
 
-log_filename = os.path.join(LOG_DIR, f"picam_server_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+# 날짜별 로그 파일 (하루에 하나의 파일)
+log_filename = os.path.join(LOG_DIR, f"picam_server_{datetime.now().strftime('%Y%m%d')}.log")
+
+# TimedRotatingFileHandler로 자정에 자동으로 새 파일 생성
+file_handler = TimedRotatingFileHandler(
+    log_filename,
+    when='midnight',  # 자정에 로테이션
+    interval=1,       # 1일마다
+    backupCount=0,    # 백업 파일 제한 없음
+    encoding='utf-8'
+)
+file_handler.suffix = "%Y%m%d"  # 백업 파일 이름 형식
+
+console_handler = logging.StreamHandler()
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(log_filename, encoding='utf-8'),
-        logging.StreamHandler()  # 콘솔에도 출력
-    ]
+    handlers=[file_handler, console_handler]
 )
 logger = logging.getLogger(__name__)
 
