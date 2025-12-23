@@ -76,6 +76,9 @@ hostname -I
 # 라즈베리파이 IP 주소 설정
 IP=<YOUR_RASPBERRY_PI_IP>
 
+# 0. 서버 상태 확인
+curl http://$IP:5000/status
+
 # 1. 카메라 테스트 (정지 이미지 촬영)
 curl http://$IP:5000/test -o test.jpg
 
@@ -93,7 +96,10 @@ curl -X POST http://$IP:5000/start
 # 5. 녹화 중지
 curl -X POST http://$IP:5000/stop
 
-# 6. 비디오 다운로드
+# 6. 녹화 인코딩 완료 대기 (상태 확인 반복)
+curl http://$IP:5000/status
+
+# 7. 비디오 다운로드
 curl http://$IP:5000/download -o camera_video.mp4
 ```
 
