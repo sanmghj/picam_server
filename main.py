@@ -33,17 +33,17 @@ if not os.path.exists(LOG_DIR):
     os.makedirs(LOG_DIR)
 
 # 날짜별 로그 파일 (하루에 하나의 파일)
-log_filename = os.path.join(LOG_DIR, f"picam_server_{datetime.now().strftime('%Y%m%d')}.log")
+log_filename = os.path.join(LOG_DIR, "picam_server.log")
 
 # TimedRotatingFileHandler로 자정에 자동으로 새 파일 생성
 file_handler = TimedRotatingFileHandler(
     log_filename,
     when='midnight',  # 자정에 로테이션
     interval=1,       # 1일마다
-    backupCount=0,    # 백업 파일 제한 없음
+    backupCount=365,   # 최근 30일 유지
     encoding='utf-8'
 )
-file_handler.suffix = "%Y%m%d"  # 백업 파일 이름 형식
+file_handler.suffix = "%Y%m%d"  # 백업 파일 이름 형식 (picam_server.log.20251223)
 
 console_handler = logging.StreamHandler()
 
