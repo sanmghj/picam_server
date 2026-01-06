@@ -3,9 +3,10 @@
 # RPi Camera 비교 테스트 스크립트 (WSL - 정확한 해상도 수정)
 # 640x480, 1280x720, 1920x1080
 
-SERVERS=("192.168.1.50" "192.168.1.72")
-DURATIONS=(1 3 5 10)
-RESOLUTIONS=("480" "720")  # 480p=640x480, 720p=1280x720
+# SERVERS=("192.168.1.50" "192.168.1.72")
+SERVERS=("192.168.1.50")
+DURATIONS=(10 30 60)
+RESOLUTIONS=("720")  # 480p=640x480, 720p=1280x720
 TOTAL_TESTS=$(( ${#DURATIONS[@]} * ${#RESOLUTIONS[@]} * ${#SERVERS[@]} ))
 LOG_DIR="./log"
 
@@ -86,7 +87,40 @@ test_video_recording() {
     local start_status=$(echo "$start_resp" | tail -1)
     local start_body=$(echo "$start_resp" | head -n -1)
     log_api_call "POST /start" "$start_body ($start_status)" green
-    sleep $((duration * 60))
+
+    # 녹화 중 진행 상황 표시
+    local target_duration=$((duration * 60))
+    local check_interval=5  # 5초마다 체크
+    local elapsed=0
+
+    echo ""
+    while [ $elapsed -lt $target_duration ]; do
+        sleep $check_interval
+        elapsed=$((elapsed + check_interval))
+
+        # 실시간 상태 확인
+        local status_resp=$(curl -s "http://$server_ip:$port/status" 2>/dev/null || echo '{"duration_seconds":0}')
+        local actual_duration=$(echo "$status_resp" | jq -r '.duration_seconds // 0' 2>/dev/null || echo "0")
+
+        # 진행률 계산
+        local percent=$((elapsed * 100 / target_duration))
+        [ $percent -gt 100 ] && percent=100
+
+        # 프로그래스바 생성
+        local filled=$((percent / 2))
+        local empty=$((50 - filled))
+        local bar=$(printf "█%.0s" $(seq 1 $filled))
+        local space=$(printf "░%.0s" $(seq 1 $empty))
+
+        # 남은 시간 계산
+        local remaining=$((target_duration - elapsed))
+        local remain_min=$((remaining / 60))
+        local remain_sec=$((remaining % 60))
+
+        printf "\r  🎬 녹화중: %3d%% [%s%s] %d/%ds (남은시간: %dm %ds)  " \
+            $percent "$bar" "$space" $elapsed $target_duration $remain_min $remain_sec
+    done
+    echo ""  # 줄바꿈
 
     # 4. 녹화 중지
     echo "  🛑 녹화 중지"
@@ -160,11 +194,11 @@ test_video_recording() {
 }
 EOF
 
-    echo "  📊 결과: 총${total_time:0:5}s | 녹화${record_time:0:5}s | 변환${convert_time:0:5}s | 다운${download_time:0:5}s | ${file_size_mb}MB" → $json_file"
+    echo "  📊 결과: 총${total_time:0:5}s | 녹화${record_time:0:5}s | 변환${convert_time:0:5}s | 다운${download_time:0:5}s | ${file_size_mb}MB → $json_file"
     echo ""
 }
 
-echo "🚀 RPi Camera 비교 테스트 시작 (총 $TOTAL_TESTS개 = 2서버×4시간×3화질)"
+echo "🚀 RPi Camera 비교 테스트 시작 (총 $TOTAL_TESTS개 = 1서버×3시간×1화질)"
 echo "📐 해상도: 480p=640x480, 720p=1280x720, 1080p=1920x1080"
 echo "📂 결과: ./log/ 폴더"
 echo ""
@@ -176,7 +210,7 @@ for duration in "${DURATIONS[@]}"; do
     echo "⏱️  $duration분 테스트 시작"
     echo "----------------------------------------"
     for res in "${RESOLUTIONS[@]}"; do
-        for idx in 0 1; do
+        for idx in "${!SERVERS[@]}"; do
             server="${SERVERS[$idx]}"
             test_video_recording "$server" "$duration" "$res" $((idx+1))
         done

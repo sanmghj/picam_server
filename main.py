@@ -248,7 +248,7 @@ def get_config():
         "fps":VIDEO_FPS
     }
     logger.info(f"[/getconfig] Returning config: {config}")
-    return jsonify(config)
+    return jsonify(config),200
 
 @app.route('/setconfig', methods=['POST'])
 def set_config():
@@ -294,7 +294,13 @@ def get_status():
     elif recording:
         elapsed = time.time() - recording_start_time if recording_start_time else 0
         logger.info(f"[/status] Current status: recording ({elapsed:.1f}s)")
-        return jsonify({"status": 0, "msg": "recording", "duration": f"{elapsed:.1f}s"}), 200
+        return jsonify({
+            "status": 0,
+            "msg": "recording",
+            "duration": f"{elapsed:.1f}s",
+            "duration_seconds": round(elapsed, 1),
+            "start_time": recording_start_time
+        }), 200
     else:
         logger.info(f"[/status] Current status: idle")
         return jsonify({"status": 0, "msg": "idle"}), 200
