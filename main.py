@@ -120,15 +120,42 @@ def record_video():
         conversion_duration = time.time() - conversion_start
 
         if result.returncode == 0:
-            converting = False
             logger.info(f"Video conversion completed successfully in {conversion_duration:.2f} seconds")
 
-            # MP4 파일 크기 확인
+            # 파일 크기 안정화 확인 (파일 쓰기 완료 보장)
             if os.path.exists(VIDEO_PATH):
-                mp4_size = os.path.getsize(VIDEO_PATH)
-                logger.info(f"MP4 file size: {mp4_size:,} bytes ({mp4_size/1024/1024:.2f} MB)")
+                logger.info("Waiting for file system to stabilize...")
+                stable_size = None
+                stable_count = 0
+                max_checks = 20  # 최대 10초 (0.5초 * 20)
+                check_count = 0
+
+                while check_count < max_checks:
+                    current_size = os.path.getsize(VIDEO_PATH)
+
+                    if stable_size == current_size:
+                        stable_count += 1
+                        # 연속 3번 동일한 크기면 안정화된 것으로 판단
+                        if stable_count >= 3:
+                            mp4_size = current_size
+                            logger.info(f"MP4 file size stabilized: {mp4_size:,} bytes ({mp4_size/1024/1024:.2f} MB)")
+                            break
+                    else:
+                        stable_size = current_size
+                        stable_count = 1
+
+                    check_count += 1
+                    time.sleep(0.5)
+
+                if check_count >= max_checks:
+                    logger.warning(f"File stabilization timeout after {max_checks * 0.5}s, proceeding anyway")
+                    mp4_size = os.path.getsize(VIDEO_PATH)
+                    logger.info(f"MP4 file size: {mp4_size:,} bytes ({mp4_size/1024/1024:.2f} MB)")
             else:
                 logger.error(f"MP4 file not found after conversion: {VIDEO_PATH}")
+
+            converting = False
+            logger.info("File is ready for download")
         else:
             converting = False
             logger.error(f"Video conversion failed with return code {result.returncode}")

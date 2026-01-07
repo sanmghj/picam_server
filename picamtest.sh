@@ -149,6 +149,10 @@ test_video_recording() {
     done
     local convert_stop=$(date +%s.%3N)
 
+    # 파일 안정화 대기 (변환 완료 직후 파일 쓰기 완료 보장)
+    echo "  ⏳ 파일 안정화 대기 (2초)..."
+    sleep 2
+
     # 6. 다운로드
     local download_start=$(date +%s.%3N)
     local temp_file="./temp/test_${server_ip}_${duration}min_${resolution}p.mp4"
