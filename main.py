@@ -82,8 +82,11 @@ def record_video():
         while recording:
             time.sleep(0.1)
 
-        recording_duration = time.time() - recording_start_time
-        logger.info(f"Recording stopped. Duration: {recording_duration:.2f} seconds ({recording_duration/60:.2f} minutes)")
+        if recording_start_time is not None:
+            recording_duration = time.time() - recording_start_time
+            logger.info(f"Recording stopped. Duration: {recording_duration:.2f} seconds ({recording_duration/60:.2f} minutes)")
+        else:
+            logger.warning("Recording stopped but start time was not recorded")
 
         camera.stop_recording()
         camera.close()
