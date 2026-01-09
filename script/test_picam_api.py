@@ -1,5 +1,5 @@
 """
-PiCam Server API 테스트 프로그램
+PiCam Server API 테스트 프로그램 (리팩토링 버전)
 여러 테스트 케이스를 확인할 수 있는 테스트 도구
 """
 
@@ -9,7 +9,7 @@ import time
 import json
 from datetime import datetime
 from typing import Dict, Any, List, Tuple
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 
 
 @dataclass
@@ -21,13 +21,13 @@ class TestConfig:
 
     @property
     def resolution_label(self) -> str:
-        if self.width == 640 and self.height == 480:
-            return "480p"
-        elif self.width == 1280 and self.height == 720:
-            return "720p"
-        elif self.width == 1920 and self.height == 1080:
-            return "1080p"
-        return f"{self.width}x{self.height}"
+        """해상도 라벨 반환"""
+        resolution_map = {
+            (640, 480): "480p",
+            (1280, 720): "720p",
+            (1920, 1080): "1080p"
+        }
+        return resolution_map.get((self.width, self.height), f"{self.width}x{self.height}")
 
 
 @dataclass
@@ -46,6 +46,7 @@ class TestResult:
     success: bool
 
     def to_dict(self) -> Dict:
+        """딕셔너리로 변환"""
         return {
             "duration_min": self.duration_min,
             "resolution": self.resolution,
@@ -75,14 +76,60 @@ class PiCamTester:
     def __init__(self, server_ip: str, port: int = 5000):
         self.base_url = f"http://{server_ip}:{port}"
         self.server_ip = server_ip
+        self.port = port
         self.test_results = []
+
+        # 경로 설정
+        self._setup_paths()
+
+        # 로그 파일 초기화
+        self._init_log_file()
+
+    def _setup_paths(self):
+        """경로 설정 초기화"""
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        self.project_root = os.path.dirname(script_dir)
+        self.log_dir = os.path.join(self.project_root, "log")
+        self.temp_dir = os.path.join(self.project_root, "temp")
+
+        # 디렉토리 생성
+        os.makedirs(self.log_dir, exist_ok=True)
+        os.makedirs(self.temp_dir, exist_ok=True)
+
+    def _init_log_file(self):
+        """로그 파일 초기화"""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.log_file_path = os.path.join(self.log_dir, f"test_{self.server_ip}_{timestamp}.log")
+        self.log_file = open(self.log_file_path, 'w', encoding='utf-8')
+        self._log_to_file_only(f"테스트 프로그램 시작 - 서버: {self.server_ip}:{self.port}")
+        self._log_to_file_only(f"로그 파일: {self.log_file_path}")
+        self._log_to_file_only("=" * 60)
+
+    def __del__(self):
+        """소멸자 - 로그 파일 닫기"""
+        if hasattr(self, 'log_file') and self.log_file and not self.log_file.closed:
+            self._log_to_file_only("=" * 60)
+            self._log_to_file_only("테스트 프로그램 종료")
+            self.log_file.close()
 
     # ========== 유틸리티 메서드 ==========
 
+    def _log_to_file_only(self, message: str):
+        """파일에만 로그 기록 (내부용)"""
+        if hasattr(self, 'log_file') and self.log_file and not self.log_file.closed:
+            self.log_file.write(f"{message}\n")
+            self.log_file.flush()
+
     def log(self, message: str, level: str = "INFO"):
-        """로그 메시지 출력"""
+        """로그 메시지 출력 (콘솔 + 파일)"""
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(f"[{timestamp}] [{level}] {message}")
+        log_message = f"[{timestamp}] [{level}] {message}"
+
+        # 콘솔 출력
+        print(log_message)
+
+        # 파일 출력
+        self._log_to_file_only(log_message)
 
     def print_separator(self, char: str = "=", length: int = 60):
         """구분선 출력"""
@@ -95,7 +142,7 @@ class PiCamTester:
     def get_temp_filename(self, duration_min: int, resolution: str) -> str:
         """임시 파일명 생성"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        return f"./temp/test_{self.server_ip}_{duration_min}min_{resolution}_{timestamp}.mp4"
+        return os.path.join(self.temp_dir, f"test_{self.server_ip}_{duration_min}min_{resolution}_{timestamp}.mp4")
 
     def ensure_directory(self, path: str):
         """디렉토리 생성 (존재하지 않으면)"""
@@ -212,11 +259,31 @@ class PiCamTester:
 
         self.log(f"서버가 idle 상태가 아닙니다 (현재: {status_msg})", "WARN")
 
+        # converting 상태인 경우 idle이 될 때까지 대기
+        if status_msg == "converting video":
+            self.log("변환 완료 대기 중...", "WARN")
+            success, elapsed = self.wait_for_idle_status(max_wait=self.MAX_CONVERT_WAIT)
+            if success:
+                self.log(f"변환 완료 ({elapsed:.1f}초 소요)", "SUCCESS")
+                return True
+            else:
+                self.log("변환 대기 시간 초과", "ERROR")
+                return False
+
+        # recording 상태인 경우 중지 시도
         if status_msg == "recording":
             self.log("녹화 중지 시도...", "WARN")
             self.stop_recording()
             time.sleep(3)
-            return True
+
+            # 중지 후 idle 대기
+            success, elapsed = self.wait_for_idle_status(max_wait=60)
+            if success:
+                self.log(f"녹화 중지 및 변환 완료 ({elapsed:.1f}초 소요)", "SUCCESS")
+                return True
+            else:
+                self.log("중지 후 변환 대기 시간 초과", "ERROR")
+                return False
 
         return False
 
@@ -257,8 +324,17 @@ class PiCamTester:
         time.sleep(1)
 
         # 2. 초기 상태 확인 및 idle로 변경
-        self.log("\n[Step 2] 초기 상태 확인")
-        self.ensure_idle_state()
+        self.log("\n[Step 2] 초기 상태 확인 및 대기")
+        if not self.ensure_idle_state():
+            raise Exception("서버를 idle 상태로 만들 수 없습니다")
+
+        # idle 상태 재확인
+        final_status = self.check_status()
+        final_msg = final_status.get("data", {}).get("msg", "unknown")
+        if final_msg != "idle":
+            raise Exception(f"서버가 여전히 idle 상태가 아닙니다 (현재: {final_msg})")
+
+        self.log("서버가 idle 상태로 준비되었습니다", "SUCCESS")
 
         # 3. 녹화 시작
         self.log(f"\n[Step 3] 녹화 시작 ({duration_min}분)")
@@ -269,6 +345,15 @@ class PiCamTester:
             raise Exception("녹화 시작 실패")
 
         self.log(f"녹화 시작 성공, {duration_min}분 동안 녹화합니다...", "SUCCESS")
+
+        # 녹화가 실제로 시작되었는지 확인 (2초 후)
+        time.sleep(2)
+        verify_status = self.check_status()
+        verify_msg = verify_status.get("data", {}).get("msg", "unknown")
+        if verify_msg != "recording":
+            raise Exception(f"녹화가 시작되지 않았습니다 (현재 상태: {verify_msg})")
+
+        self.log("녹화 진행 중 확인됨", "SUCCESS")
 
         # 4. 녹화 진행 모니터링
         self.log(f"\n[Step 4] 녹화 진행 중 (목표: {duration_min * 60}초)")
@@ -300,7 +385,6 @@ class PiCamTester:
         download_start_time = time.time()
 
         temp_file = self.get_temp_filename(duration_min, config.resolution_label)
-        self.ensure_directory("./temp")
 
         download_result = self.download_video(temp_file)
         download_duration = time.time() - download_start_time
@@ -350,10 +434,8 @@ class PiCamTester:
 
     def _save_results_to_json(self, results: List[TestResult]):
         """테스트 결과를 JSON 파일로 저장"""
-        self.ensure_directory("./log")
-
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        json_file = f"./log/picamtest_python_{self.server_ip}_{timestamp}.json"
+        json_file = os.path.join(self.log_dir, f"picamtest_python_{self.server_ip}_{timestamp}.json")
 
         results_dict = [r.to_dict() for r in results]
 
@@ -361,8 +443,7 @@ class PiCamTester:
             json.dump(results_dict, f, indent=2, ensure_ascii=False)
 
         self.log(f"\n테스트 결과가 {json_file}에 저장되었습니다.")
-
-    # ========== 테스트 시나리오 메서드 ==========
+        self.log(f"테스트 로그가 {self.log_file_path}에 저장되었습니다.")
 
     # ========== 테스트 시나리오 메서드 ==========
 
@@ -384,73 +465,56 @@ class PiCamTester:
 
         results = []
 
-        # Step 1: 초기 상태 확인
-        self.log("\n[Step 1] 초기 상태 확인")
-        result1 = self.check_status()
-        results.append(("초기 상태 확인", result1))
-        time.sleep(1)
+        # Step 1-6: 테스트 단계 실행
+        steps = [
+            ("Step 1", "초기 상태 확인", lambda: self.check_status()),
+            ("Step 2", "첫 번째 녹화 시작 요청", lambda: self.start_recording()),
+            ("Step 3", "녹화 중 상태 확인", lambda: self.check_status()),
+            ("Step 4", "두 번째 녹화 시작 시도", lambda: self.start_recording()),
+            ("Step 5", "상태 재확인", lambda: self.check_status()),
+            ("Step 6", "세 번째 녹화 시작 시도", lambda: self.start_recording()),
+        ]
 
-        # Step 2: 첫 번째 녹화 시작 (성공해야 함)
-        self.log("\n[Step 2] 첫 번째 녹화 시작 요청")
-        result2 = self.start_recording()
-        results.append(("첫 번째 녹화 시작", result2))
+        step_results = []
+        for step_num, step_desc, step_func in steps:
+            self.log(f"\n[{step_num}] {step_desc}")
+            result = step_func()
+            step_results.append(result)
+            results.append((step_desc, result))
 
-        if result2.get("status_code") == 200:
-            self.log("✓ 첫 번째 녹화 시작 성공 (예상대로)", "SUCCESS")
-        else:
-            self.log("✗ 첫 번째 녹화 시작 실패 (예상과 다름)", "FAIL")
-        time.sleep(2)
+            # Step 2 검증
+            if step_num == "Step 2":
+                if result.get("status_code") == 200:
+                    self.log("✓ 첫 번째 녹화 시작 성공 (예상대로)", "SUCCESS")
+                else:
+                    self.log("✗ 첫 번째 녹화 시작 실패 (예상과 다름)", "FAIL")
+                time.sleep(2)
+            # Step 3 검증
+            elif step_num == "Step 3":
+                is_recording = result.get("data", {}).get("msg") == "recording"
+                if is_recording:
+                    self.log("✓ 녹화 중 상태 확인됨 (예상대로)", "SUCCESS")
+                else:
+                    self.log("✗ 녹화 중이 아님 (예상과 다름)", "FAIL")
+            # Step 4, 6 검증
+            elif step_num in ["Step 4", "Step 6"]:
+                is_already_recording_error = (
+                    result.get("status_code") == 400 and
+                    "already recording" in str(result.get("data", {})).lower()
+                )
+                if is_already_recording_error:
+                    self.log("✓ 'already recording' 에러 발생 (예상대로)", "SUCCESS")
+                elif result.get("status_code") == 200 and step_num == "Step 6":
+                    self.log("✗✗✗ 버그 발견! 세 번째 시도에서 녹화가 시작됨 (비정상)", "BUG")
+                else:
+                    self.log("✗ 예상과 다른 응답 (버그 가능성)", "FAIL")
 
-        # Step 3: 녹화 중 상태 확인
-        self.log("\n[Step 3] 녹화 중 상태 확인")
-        result3 = self.check_status()
-        results.append(("녹화 중 상태 확인", result3))
-
-        is_recording = result3.get("data", {}).get("msg") == "recording"
-        if is_recording:
-            self.log("✓ 녹화 중 상태 확인됨 (예상대로)", "SUCCESS")
-        else:
-            self.log("✗ 녹화 중이 아님 (예상과 다름)", "FAIL")
-        time.sleep(1)
-
-        # Step 4: 두 번째 녹화 시작 시도 (실패해야 함 - already recording)
-        self.log("\n[Step 4] 두 번째 녹화 시작 시도 (already recording 에러 예상)")
-        result4 = self.start_recording()
-        results.append(("두 번째 녹화 시작 시도", result4))
-
-        is_already_recording_error = (
-            result4.get("status_code") == 400 and
-            "already recording" in str(result4.get("data", {})).lower()
-        )
-        if is_already_recording_error:
-            self.log("✓ 'already recording' 에러 발생 (예상대로)", "SUCCESS")
-        else:
-            self.log("✗ 예상과 다른 응답 (버그 가능성)", "FAIL")
-        time.sleep(1)
-
-        # Step 5: 상태 재확인
-        self.log("\n[Step 5] 상태 재확인")
-        result5 = self.check_status()
-        results.append(("상태 재확인", result5))
-        time.sleep(1)
-
-        # Step 6: 세 번째 녹화 시작 시도 (여전히 실패해야 함)
-        self.log("\n[Step 6] 세 번째 녹화 시작 시도 (여전히 already recording 에러 예상)")
-        result6 = self.start_recording()
-        results.append(("세 번째 녹화 시작 시도", result6))
-
-        # 버그 확인: 세 번째 시도에서 성공하면 버그
-        if result6.get("status_code") == 200:
-            self.log("✗✗✗ 버그 발견! 세 번째 시도에서 녹화가 시작됨 (비정상)", "BUG")
-        elif is_already_recording_error:
-            self.log("✓ 'already recording' 에러 유지 (정상)", "SUCCESS")
-        else:
-            self.log("? 예상과 다른 응답", "WARN")
+            time.sleep(1)
 
         # 최종 상태 확인
         self.log("\n[Step 7] 최종 상태 확인")
-        result7 = self.check_status()
-        results.append(("최종 상태 확인", result7))
+        final_status = self.check_status()
+        results.append(("최종 상태 확인", final_status))
 
         # 테스트 정리: 녹화 중지
         self.log("\n[Cleanup] 녹화 중지 (테스트 정리)")
@@ -473,34 +537,19 @@ class PiCamTester:
         self.log("테스트 시작: 기본 워크플로우")
         self.print_separator()
 
-        # 설정 확인
-        self.log("\n[Test] 설정 조회")
-        self.get_config()
-        time.sleep(1)
+        workflow = [
+            ("설정 조회", lambda: self.get_config()),
+            ("초기 상태 확인", lambda: self.check_status()),
+            ("녹화 시작", lambda: self.start_recording()),
+            ("녹화 중 상태 확인", lambda: (time.sleep(3), self.check_status())[1]),
+            ("녹화 중지", lambda: (time.sleep(2), self.stop_recording())[1]),
+            ("최종 상태 확인", lambda: self.check_status()),
+        ]
 
-        # 상태 확인
-        self.log("\n[Test] 초기 상태 확인")
-        self.check_status()
-        time.sleep(1)
-
-        # 녹화 시작
-        self.log("\n[Test] 녹화 시작")
-        self.start_recording()
-        time.sleep(3)
-
-        # 녹화 중 상태 확인
-        self.log("\n[Test] 녹화 중 상태 확인")
-        self.check_status()
-        time.sleep(2)
-
-        # 녹화 중지
-        self.log("\n[Test] 녹화 중지")
-        self.stop_recording()
-        time.sleep(1)
-
-        # 최종 상태 확인
-        self.log("\n[Test] 최종 상태 확인")
-        self.check_status()
+        for test_name, test_func in workflow:
+            self.log(f"\n[Test] {test_name}")
+            test_func()
+            time.sleep(1)
 
         self.log("\n기본 워크플로우 테스트 완료")
 
@@ -567,371 +616,6 @@ class PiCamTester:
                 self.log(f"  - 성공 여부: {'✓' if result.success else '✗'}")
 
             self._save_results_to_json(results)
-        """
-        테스트 시나리오: Already Recording 버그 재현
-
-        시나리오:
-        1. 상태확인 → idle
-        2. 녹화 시작 요청 → 성공
-        3. 상태확인 → recording
-        4. 녹화 시작 요청 → "already recording" 에러 (정상)
-        5. 상태확인 → recording (여전히)
-        6. 녹화 시작 요청 → 버그: 녹화가 다시 시작될 수 있음 (비정상)
-        """
-        self.log("=" * 60)
-        self.log("테스트 시작: Already Recording 버그 재현")
-        self.log("=" * 60)
-
-        test_name = "Already Recording Bug Test"
-        results = []
-
-        # Step 1: 초기 상태 확인
-        self.log("\n[Step 1] 초기 상태 확인")
-        result1 = self.check_status()
-        results.append(("초기 상태 확인", result1))
-        time.sleep(1)
-
-        # Step 2: 첫 번째 녹화 시작 (성공해야 함)
-        self.log("\n[Step 2] 첫 번째 녹화 시작 요청")
-        result2 = self.start_recording()
-        results.append(("첫 번째 녹화 시작", result2))
-        expected_success = result2.get("status_code") == 200
-        if expected_success:
-            self.log("✓ 첫 번째 녹화 시작 성공 (예상대로)", "SUCCESS")
-        else:
-            self.log("✗ 첫 번째 녹화 시작 실패 (예상과 다름)", "FAIL")
-        time.sleep(2)
-
-        # Step 3: 녹화 중 상태 확인
-        self.log("\n[Step 3] 녹화 중 상태 확인")
-        result3 = self.check_status()
-        results.append(("녹화 중 상태 확인", result3))
-        is_recording = result3.get("data", {}).get("msg") == "recording"
-        if is_recording:
-            self.log("✓ 녹화 중 상태 확인됨 (예상대로)", "SUCCESS")
-        else:
-            self.log("✗ 녹화 중이 아님 (예상과 다름)", "FAIL")
-        time.sleep(1)
-
-        # Step 4: 두 번째 녹화 시작 시도 (실패해야 함 - already recording)
-        self.log("\n[Step 4] 두 번째 녹화 시작 시도 (already recording 에러 예상)")
-        result4 = self.start_recording()
-        results.append(("두 번째 녹화 시작 시도", result4))
-        is_already_recording_error = (
-            result4.get("status_code") == 400 and
-            "already recording" in str(result4.get("data", {})).lower()
-        )
-        if is_already_recording_error:
-            self.log("✓ 'already recording' 에러 발생 (예상대로)", "SUCCESS")
-        else:
-            self.log("✗ 예상과 다른 응답 (버그 가능성)", "FAIL")
-        time.sleep(1)
-
-        # Step 5: 상태 재확인
-        self.log("\n[Step 5] 상태 재확인")
-        result5 = self.check_status()
-        results.append(("상태 재확인", result5))
-        time.sleep(1)
-
-        # Step 6: 세 번째 녹화 시작 시도 (여전히 실패해야 함)
-        self.log("\n[Step 6] 세 번째 녹화 시작 시도 (여전히 already recording 에러 예상)")
-        result6 = self.start_recording()
-        results.append(("세 번째 녹화 시작 시도", result6))
-
-        # 버그 확인: 세 번째 시도에서 성공하면 버그
-        if result6.get("status_code") == 200:
-            self.log("✗✗✗ 버그 발견! 세 번째 시도에서 녹화가 시작됨 (비정상)", "BUG")
-        elif is_already_recording_error:
-            self.log("✓ 'already recording' 에러 유지 (정상)", "SUCCESS")
-        else:
-            self.log("? 예상과 다른 응답", "WARN")
-
-        # 최종 상태 확인
-        self.log("\n[Step 7] 최종 상태 확인")
-        result7 = self.check_status()
-        results.append(("최종 상태 확인", result7))
-
-        # 테스트 정리: 녹화 중지
-        self.log("\n[Cleanup] 녹화 중지 (테스트 정리)")
-        cleanup = self.stop_recording()
-        time.sleep(2)
-
-        # 결과 요약
-        self.log("\n" + "=" * 60)
-        self.log("테스트 결과 요약")
-        self.log("=" * 60)
-        for step_name, result in results:
-            status = "SUCCESS" if result.get("success") else "FAIL"
-            self.log(f"{step_name}: {status} (HTTP {result.get('status_code', 'N/A')})")
-
-        return results
-
-    def test_basic_workflow(self):
-        """기본 워크플로우 테스트"""
-        self.log("=" * 60)
-        self.log("테스트 시작: 기본 워크플로우")
-        self.log("=" * 60)
-
-        # 설정 확인
-        self.log("\n[Test] 설정 조회")
-        self.get_config()
-        time.sleep(1)
-
-        # 상태 확인
-        self.log("\n[Test] 초기 상태 확인")
-        self.check_status()
-        time.sleep(1)
-
-        # 녹화 시작
-        self.log("\n[Test] 녹화 시작")
-        self.start_recording()
-        time.sleep(3)
-
-        # 녹화 중 상태 확인
-        self.log("\n[Test] 녹화 중 상태 확인")
-        self.check_status()
-        time.sleep(2)
-
-        # 녹화 중지
-        self.log("\n[Test] 녹화 중지")
-        self.stop_recording()
-        time.sleep(1)
-
-        # 최종 상태 확인
-        self.log("\n[Test] 최종 상태 확인")
-        self.check_status()
-
-        self.log("\n기본 워크플로우 테스트 완료")
-
-    def test_picamtest_sh_scenario(self):
-        """
-        picamtest.sh 시나리오 테스트
-        사전 정의된 시간(10, 30, 60분)과 해상도(720p)로 테스트 진행
-        """
-        self.log("=" * 60)
-        self.log("테스트 시작: picamtest.sh 시나리오")
-        self.log("=" * 60)
-
-        # picamtest.sh의 설정값
-        durations = [10, 30, 60]  # 분 단위
-        resolution = "720p"
-        width, height = 1280, 720
-        fps = 30
-
-        self.log(f"\n테스트 설정: {resolution} ({width}x{height}@{fps}fps)")
-        self.log(f"테스트 시간: {durations} 분")
-
-        # 사용자에게 테스트 시간 선택하도록 함
-        print("\n테스트할 녹화 시간을 선택하세요:")
-        for i, dur in enumerate(durations, 1):
-            print(f"{i}. {dur}분")
-        print("0. 모든 시간 테스트 (순차 실행)")
-
-        choice = input("\n선택하세요: ").strip()
-
-        selected_durations = []
-        if choice == "0":
-            selected_durations = durations
-        elif choice.isdigit() and 1 <= int(choice) <= len(durations):
-            selected_durations = [durations[int(choice) - 1]]
-        else:
-            self.log("잘못된 선택입니다.", "ERROR")
-            return
-
-        results = []
-
-        for duration_min in selected_durations:
-            self.log("\n" + "=" * 60)
-            self.log(f"녹화 시간 {duration_min}분 테스트 시작")
-            self.log("=" * 60)
-
-            test_start_time = time.time()
-
-            # 1. 설정 변경
-            self.log(f"\n[Step 1] 해상도 설정: {width}x{height}@{fps}fps")
-            config_result = self.set_config(width, height, fps)
-            if not config_result.get("success"):
-                self.log("설정 변경 실패, 테스트 중단", "ERROR")
-                continue
-            time.sleep(1)
-
-            # 2. 초기 상태 확인
-            self.log("\n[Step 2] 초기 상태 확인")
-            status_result = self.check_status()
-            status_msg = status_result.get("data", {}).get("msg", "unknown")
-
-            if status_msg != "idle":
-                self.log(f"서버가 idle 상태가 아닙니다 (현재: {status_msg})", "WARN")
-                if status_msg == "recording":
-                    self.log("녹화 중지 시도...", "WARN")
-                    self.stop_recording()
-                    time.sleep(3)
-
-            # 3. 녹화 시작
-            self.log(f"\n[Step 3] 녹화 시작 ({duration_min}분)")
-            record_start_time = time.time()
-            start_result = self.start_recording()
-
-            if start_result.get("status_code") != 200:
-                self.log("녹화 시작 실패, 테스트 중단", "ERROR")
-                continue
-
-            self.log(f"녹화 시작 성공, {duration_min}분 동안 녹화합니다...", "SUCCESS")
-
-            # 4. 녹화 진행 모니터링
-            self.log(f"\n[Step 4] 녹화 진행 중 (목표: {duration_min * 60}초)")
-            target_duration = duration_min * 60
-            check_interval = 10  # 10초마다 체크
-            elapsed = 0
-
-            while elapsed < target_duration:
-                sleep_time = min(check_interval, target_duration - elapsed)
-                time.sleep(sleep_time)
-                elapsed += sleep_time
-
-                # 실시간 상태 확인
-                status = self.check_status()
-                actual_duration = status.get("data", {}).get("duration_seconds", 0)
-
-                progress = (elapsed / target_duration) * 100
-                remaining = target_duration - elapsed
-
-                self.log(
-                    f"진행: {progress:.1f}% | 경과: {elapsed}s / {target_duration}s | "
-                    f"실제 녹화: {actual_duration:.1f}s | 남은 시간: {remaining}s"
-                )
-
-            record_duration = time.time() - record_start_time
-            self.log(f"\n녹화 완료 (실제 시간: {record_duration:.1f}초)", "SUCCESS")
-
-            # 5. 녹화 중지
-            self.log("\n[Step 5] 녹화 중지")
-            stop_result = self.stop_recording()
-
-            if stop_result.get("status_code") != 200:
-                self.log("녹화 중지 실패", "ERROR")
-                continue
-
-            # 6. 변환 대기
-            self.log("\n[Step 6] 비디오 변환 대기...")
-            convert_start_time = time.time()
-            max_wait = 300  # 최대 5분 대기
-            waited = 0
-
-            while waited < max_wait:
-                status = self.check_status()
-                status_msg = status.get("data", {}).get("msg", "unknown")
-
-                if status_msg == "idle":
-                    convert_duration = time.time() - convert_start_time
-                    self.log(f"변환 완료 (소요 시간: {convert_duration:.1f}초)", "SUCCESS")
-                    break
-                elif status_msg == "converting video":
-                    self.log(f"변환 중... ({waited}초 경과)")
-                    time.sleep(5)
-                    waited += 5
-                else:
-                    self.log(f"예상치 못한 상태: {status_msg}", "WARN")
-                    time.sleep(5)
-                    waited += 5
-
-            if waited >= max_wait:
-                self.log("변환 대기 시간 초과", "ERROR")
-                continue
-
-            # 파일 안정화 대기
-            self.log("파일 안정화 대기 (2초)...")
-            time.sleep(2)
-
-            # 7. 다운로드
-            self.log("\n[Step 7] 비디오 다운로드")
-            download_start_time = time.time()
-
-            # 임시 파일명 생성
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            server_ip = self.base_url.split("://")[1].split(":")[0]
-            temp_file = f"./temp/test_{server_ip}_{duration_min}min_{resolution}_{timestamp}.mp4"
-
-            # temp 디렉토리 생성
-            import os
-            os.makedirs("./temp", exist_ok=True)
-
-            download_result = self.download_video(temp_file)
-            download_duration = time.time() - download_start_time
-
-            if download_result.get("success"):
-                file_size = download_result.get("file_size", 0)
-                self.log(
-                    f"다운로드 완료: {file_size:,} bytes ({file_size/1024/1024:.2f} MB) "
-                    f"in {download_duration:.1f}s",
-                    "SUCCESS"
-                )
-
-                # 다운로드 후 파일 삭제
-                if os.path.exists(temp_file):
-                    os.remove(temp_file)
-                    self.log(f"임시 파일 삭제: {temp_file}")
-            else:
-                self.log(f"다운로드 실패: {download_result.get('error')}", "ERROR")
-                file_size = 0
-
-            # 8. 결과 저장
-            total_time = time.time() - test_start_time
-            test_result = {
-                "duration_min": duration_min,
-                "resolution": resolution,
-                "width": width,
-                "height": height,
-                "fps": fps,
-                "total_time_sec": round(total_time, 2),
-                "record_time_sec": round(record_duration, 2),
-                "convert_time_sec": round(convert_duration, 2) if 'convert_duration' in locals() else 0,
-                "download_time_sec": round(download_duration, 2),
-                "file_size_bytes": file_size,
-                "success": download_result.get("success", False)
-            }
-
-            results.append(test_result)
-
-            self.log("\n" + "=" * 60)
-            self.log(f"{duration_min}분 테스트 완료")
-            self.log("=" * 60)
-            self.log(f"총 소요 시간: {total_time:.1f}초 ({total_time/60:.1f}분)")
-            self.log(f"녹화 시간: {record_duration:.1f}초")
-            self.log(f"변환 시간: {convert_duration:.1f}초" if 'convert_duration' in locals() else "변환 시간: N/A")
-            self.log(f"다운로드 시간: {download_duration:.1f}초")
-            self.log(f"파일 크기: {file_size:,} bytes ({file_size/1024/1024:.2f} MB)")
-
-            # 다음 테스트 전 대기
-            if duration_min != selected_durations[-1]:
-                self.log("\n다음 테스트까지 5초 대기...")
-                time.sleep(5)
-
-        # 전체 결과 요약
-        if results:
-            self.log("\n" + "=" * 60)
-            self.log("전체 테스트 결과 요약")
-            self.log("=" * 60)
-
-            for i, result in enumerate(results, 1):
-                self.log(f"\n테스트 {i}: {result['duration_min']}분")
-                self.log(f"  - 총 시간: {result['total_time_sec']}초")
-                self.log(f"  - 파일 크기: {result['file_size_bytes']:,} bytes")
-                self.log(f"  - 성공 여부: {'✓' if result['success'] else '✗'}")
-
-            # JSON 파일로 저장
-            import os
-            log_dir = "./log"
-            os.makedirs(log_dir, exist_ok=True)
-
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            server_ip = self.base_url.split("://")[1].split(":")[0]
-            json_file = f"{log_dir}/picamtest_python_{server_ip}_{timestamp}.json"
-
-            with open(json_file, 'w', encoding='utf-8') as f:
-                json.dump(results, f, indent=2, ensure_ascii=False)
-
-            self.log(f"\n테스트 결과가 {json_file}에 저장되었습니다.")
 
 
 def main():
@@ -948,6 +632,7 @@ def main():
 
     # 테스트 객체 생성
     tester = PiCamTester(server_ip)
+    print(f"\n로그 파일: {tester.log_file_path}")
 
     # 테스트 메뉴
     while True:
@@ -974,10 +659,20 @@ def main():
             tester.check_status()
         elif choice == "5":
             server_ip = input("새로운 IP 주소를 입력하세요: ").strip()
+            # 기존 tester 정리
+            if hasattr(tester, 'log_file') and tester.log_file and not tester.log_file.closed:
+                tester.log("서버 IP 변경으로 인한 테스터 종료")
+                tester.log_file.close()
+            # 새 tester 생성
             tester = PiCamTester(server_ip)
             print(f"서버 IP가 {server_ip}로 변경되었습니다.")
         elif choice == "0":
             print("\n테스트 프로그램을 종료합니다.")
+            # 로그 파일 정리
+            if hasattr(tester, 'log_file') and tester.log_file and not tester.log_file.closed:
+                tester._log_to_file_only("=" * 60)
+                tester._log_to_file_only("테스트 프로그램 종료")
+                tester.log_file.close()
             break
         else:
             print("올바른 번호를 선택하세요.")
