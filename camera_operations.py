@@ -237,6 +237,17 @@ class CameraManager:
         logger.info("Starting live stream")
 
         try:
+            # 기존 스트림 카메라가 있으면 정리
+            if self.stream_camera is not None:
+                logger.warning("Cleaning up previous stream camera")
+                try:
+                    self.stream_camera.stop()
+                    self.stream_camera.close()
+                except Exception as e:
+                    logger.error(f"Error cleaning previous camera: {e}")
+                finally:
+                    self.stream_camera = None
+
             # 스트리밍용 카메라 초기화
             self.stream_camera = Picamera2()
 
@@ -271,26 +282,77 @@ class CameraManager:
                     yield (b'--frame\r\n'
                            b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
 
+                except GeneratorExit:
+                    # 클라이언트 연결 종료
+                    logger.info("Client disconnected from stream")
+                    break
                 except Exception as e:
                     logger.error(f"Frame capture error: {e}")
+                    # 에러가 계속되면 중단
+                    if not self.streaming:
+                        break
                     continue
 
+        except RuntimeError as e:
+            if "Device or resource busy" in str(e):
+                logger.error("Camera is busy. Attempting to force cleanup...")
+                # 강제 정리 시도
+                self._force_cleanup_camera()
+            else:
+                logger.error(f"Stream error: {e}", exc_info=True)
         except Exception as e:
             logger.error(f"Stream error: {e}", exc_info=True)
         finally:
             self.stop_stream()
+            logger.info("Stream generator finished")
+
+    def _force_cleanup_camera(self):
+        """카메라 강제 정리"""
+        try:
+            # 모든 카메라 인스턴스 정리 시도
+            if self.stream_camera:
+                try:
+                    self.stream_camera.stop()
+                except:
+                    pass
+                try:
+                    self.stream_camera.close()
+                except:
+                    pass
+                self.stream_camera = None
+
+            # 녹화 카메라도 확인
+            if self.camera:
+                try:
+                    self.camera.stop()
+                except:
+                    pass
+                try:
+                    self.camera.close()
+                except:
+                    pass
+                self.camera = None
+
+            logger.info("Force cleanup completed")
+            time.sleep(1)  # 리소스 해제 대기
+        except Exception as e:
+            logger.error(f"Force cleanup error: {e}")
 
     def stop_stream(self):
         """스트림 중지"""
+        self.streaming = False
+
         if self.stream_camera:
             try:
-                self.streaming = False
+                logger.info("Stopping stream camera")
                 self.stream_camera.stop()
                 self.stream_camera.close()
+                logger.info("Stream camera closed successfully")
+            except Exception as e:
+                logger.error(f"Error stopping stream camera: {e}")
+            finally:
                 self.stream_camera = None
                 logger.info("Live stream stopped")
-            except Exception as e:
-                logger.error(f"Error stopping stream: {e}")
 
     def is_streaming(self):
         """스트리밍 중인지 확인"""
