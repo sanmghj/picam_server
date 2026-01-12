@@ -2,12 +2,13 @@
 카메라 녹화 및 비디오 변환 처리 모듈
 """
 from picamera2 import Picamera2
-from picamera2.encoders import H264Encoder
+from picamera2.encoders import H264Encoder, MJPEGEncoder
 from libcamera import Transform
 import os
 import subprocess
 import time
 import logging
+import io
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -27,10 +28,18 @@ class CameraManager:
         self.converting = False
         self.recording_start_time = None
 
+        # 스트리밍 관련
+        self.streaming = False
+        self.stream_camera = None
+
         # 기본 설정
         self.width = 1280
         self.height = 720
         self.fps = 30
+
+        # 스트리밍 해상도 (기본값은 녹화 해상도와 동일)
+        self.stream_width = 1280
+        self.stream_height = 720
 
     def is_recording(self):
         """녹화 중인지 확인"""
@@ -53,19 +62,14 @@ class CameraManager:
 
         if width is not None:
             self.width = width
+            self.stream_width = width  # 스트리밍 해상도도 함께 변경
         if height is not None:
             self.height = height
+            self.stream_height = height  # 스트리밍 해상도도 함께 변경
         if fps is not None:
             self.fps = fps
 
-        logger.info(f"Config updated: {self.width}x{self.height}@{self.fps}fps")
-
-    def get_config(self):
-        """현재 설정 반환"""
-        return {
-            "format": self.video_format,
-            "resolution": f"{self.width}x{self.height}",
-            "fps": self.fps
+        logger.info(f"Config updated: {self.width}x{self.height}@{self.fps}fps (stream: {self.stream_width}x{self.stream_height})")
         }
 
     def start_recording(self):
@@ -227,3 +231,57 @@ class CameraManager:
 
         logger.info(f"Test image captured successfully: {output_path}")
         return output_path
+
+    def generate_stream(self):
+        """실시간 MJPEG 스트림 생성"""
+        logger.info("Starting live stream")
+
+        try:
+            # 스트리밍용 카메라 초기화
+            self.stream_camera = Picamera2()
+            config = self.stream_camera.create_video_configuration(
+                main={"size": (self.stream_width, self.stream_height)},
+                transform=Transform(rotation=180)
+            )
+            self.stream_camera.configure(config)
+            self.stream_camera.start()
+            self.streaming = True
+
+            logger.info(f"Live stream started ({self.stream_width}x{self.stream_height})")
+
+            # 프레임 생성 루프
+            while self.streaming:
+                # 프레임 캡처
+                frame = self.stream_camera.capture_array()
+
+                # JPEG로 인코딩
+                import cv2
+                _, jpeg = cv2.imencode('.jpg', frame)
+                frame_bytes = jpeg.tobytes()
+
+                # MJPEG 형식으로 전송
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+
+                time.sleep(0.033)  # ~30fps
+
+        except Exception as e:
+            logger.error(f"Stream error: {e}", exc_info=True)
+        finally:
+            self.stop_stream()
+
+    def stop_stream(self):
+        """스트림 중지"""
+        if self.stream_camera:
+            try:
+                self.streaming = False
+                self.stream_camera.stop()
+                self.stream_camera.close()
+                self.stream_camera = None
+                logger.info("Live stream stopped")
+            except Exception as e:
+                logger.error(f"Error stopping stream: {e}")
+
+    def is_streaming(self):
+        """스트리밍 중인지 확인"""
+        return self.streaming

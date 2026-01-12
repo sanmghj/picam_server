@@ -2,7 +2,7 @@
 PiCam Server - Flask 웹 서버
 카메라 녹화 및 비디오 스트리밍 서비스
 """
-from flask import Flask
+from flask import Flask, render_template
 import logging
 
 from config import setup_logging
@@ -69,6 +69,18 @@ def get_status():
 def test_camera():
     """카메라 테스트"""
     return api_handlers.test_camera()
+
+
+@app.route('/livestream', methods=['GET'])
+def livestream():
+    """실시간 카메라 스트리밍"""
+    return api_handlers.livestream()
+
+
+@app.route('/viewer', methods=['GET'])
+def viewer():
+    """라이브 스트림 뷰어 페이지"""
+    return render_template('livestream.html')
 
 
 # ===== 서버 실행 =====

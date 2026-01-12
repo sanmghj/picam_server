@@ -2,7 +2,7 @@
 Flask API 핸들러 모듈
 각 엔드포인트에 대한 비즈니스 로직 처리
 """
-from flask import send_file, jsonify, request
+from flask import send_file, jsonify, request, Response
 import os
 import logging
 import time
@@ -224,4 +224,22 @@ class APIHandlers:
             return send_file(output_path, as_attachment=True)
         except Exception as e:
             logger.error(f"[/test] Camera test failed: {e}", exc_info=True)
+            return jsonify({"error": str(e)}), 500
+
+    def livestream(self):
+        """실시간 카메라 스트리밍"""
+        logger.info(f"[/livestream] Request received from {request.remote_addr}")
+
+        if self.camera_manager.is_recording():
+            logger.warning(f"[/livestream] Request rejected - recording in progress")
+            return jsonify({"error": "stop recording first"}), 400
+
+        try:
+            logger.info(f"[/livestream] Starting live stream for {request.remote_addr}")
+            return Response(
+                self.camera_manager.generate_stream(),
+                mimetype='multipart/x-mixed-replace; boundary=frame'
+            )
+        except Exception as e:
+            logger.error(f"[/livestream] Stream failed: {e}", exc_info=True)
             return jsonify({"error": str(e)}), 500

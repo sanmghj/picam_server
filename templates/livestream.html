@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PiCam Live Stream</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 30px;
+            max-width: 900px;
+            width: 100%;
+        }
+
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 2em;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 0.9em;
+        }
+
+        .video-container {
+            position: relative;
+            width: 100%;
+            background: #000;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        }
+
+        #stream {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #28a745;
+            margin-right: 8px;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        .status-text {
+            color: #495057;
+            font-weight: 500;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .info-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .info-label {
+            color: #6c757d;
+            font-size: 0.85em;
+            margin-bottom: 5px;
+        }
+
+        .info-value {
+            color: #333;
+            font-size: 1.2em;
+            font-weight: 600;
+        }
+
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+            display: none;
+        }
+
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 1.2em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎥 PiCam Live Stream</h1>
+        <p class="subtitle">실시간 카메라 영상 - 각도 조절용</p>
+
+        <div class="video-container">
+            <div class="loading" id="loading">스트림 로딩 중...</div>
+            <img id="stream" src="/livestream" alt="Live Stream">
+        </div>
+
+        <div class="status">
+            <span class="status-indicator"></span>
+            <span class="status-text">라이브 스트리밍 중</span>
+        </div>
+
+        <div class="info-grid">
+            <div class="info-card">
+                <div class="info-label">해상도</div>
+                <div class="info-value" id="resolution">1280 × 720</div>
+            </div>
+            <div class="info-card">
+                <div class="info-label">프레임레이트</div>
+                <div class="info-value">~30 FPS</div>
+            </div>
+            <div class="info-card">
+                <div class="info-label">회전</div>
+                <div class="info-value">180°</div>
+            </div>
+        </div>
+
+        <div class="error" id="error">
+            스트림을 로드하는 중 오류가 발생했습니다.
+        </div>
+    </div>
+
+    <script>
+        const stream = document.getElementById('stream');
+        const loading = document.getElementById('loading');
+        const error = document.getElementById('error');
+        const resolutionEl = document.getElementById('resolution');
+
+        // 현재 설정 가져오기
+        fetch('/getconfig')
+            .then(response => response.json())
+            .then(data => {
+                if (data.resolution) {
+                    resolutionEl.textContent = data.resolution.replace('x', ' × ');
+                }
+            })
+            .catch(err => {
+                console.error('Failed to fetch config:', err);
+            });
+
+        stream.onload = function() {
+            loading.style.display = 'none';
+        };
+
+        stream.onerror = function() {
+            loading.style.display = 'none';
+            error.style.display = 'block';
+        };
+    </script>
+</body>
+</html>
