@@ -94,10 +94,19 @@ class CameraManager:
 
         logger.info(f"Recording started at {datetime.fromtimestamp(self.recording_start_time).strftime('%Y-%m-%d %H:%M:%S')}")
 
-    def stop_recording(self):
-        """녹화 중지"""
+    def request_stop(self):
+        """녹화 중지 요청 (플래그만 설정)"""
         if not self.recording:
             raise ValueError("Not recording")
+
+        logger.info("Recording stop requested")
+        self.recording = False
+
+    def finalize_recording(self):
+        """녹화 종료 후 정리 및 변환"""
+        if self.recording:
+            logger.warning("finalize_recording called while still recording")
+            return
 
         if self.recording_start_time is not None:
             recording_duration = time.time() - self.recording_start_time
@@ -105,9 +114,11 @@ class CameraManager:
         else:
             logger.warning("Recording stopped but start time was not recorded")
 
-        self.camera.stop_recording()
-        self.camera.close()
-        self.recording = False
+        try:
+            self.camera.stop_recording()
+            self.camera.close()
+        except Exception as e:
+            logger.error(f"Error stopping camera: {e}")
 
         # H264 파일 크기 확인
         if os.path.exists(self.temp_path):

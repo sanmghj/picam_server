@@ -34,8 +34,8 @@ class APIHandlers:
                         while self.camera_manager.is_recording():
                             time.sleep(0.1)
 
-                        # 녹화 종료 후 변환
-                        self.camera_manager.stop_recording()
+                        # 녹화 종료 후 정리 및 변환
+                        self.camera_manager.finalize_recording()
 
                     except Exception as e:
                         logger.error(f"Video recording error: {e}", exc_info=True)
@@ -70,11 +70,11 @@ class APIHandlers:
             elapsed = self.camera_manager.get_recording_duration()
             logger.info(f"[/stop] Stopping recording after {elapsed:.2f} seconds ({elapsed/60:.2f} minutes)")
 
-            # 녹화 플래그만 False로 설정 (스레드에서 처리)
-            self.camera_manager.recording = False
+            # 녹화 플래그만 False로 설정 (스레드에서 나머지 처리)
+            self.camera_manager.request_stop()
             time.sleep(1)
 
-            logger.info(f"[/stop] Recording stopped, conversion will start")
+            logger.info(f"[/stop] Recording stop requested, conversion will start")
             return jsonify({"status": 0, "msg": "stopped, converting..."}), 200
 
         logger.warning(f"[/stop] Request rejected - not recording")
