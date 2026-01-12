@@ -73,19 +73,19 @@ def test_camera():
 
 @app.route('/livestream', methods=['GET'])
 def livestream():
-    """라이브 스트림 뷰어 페이지"""
-    return render_template('livestream.html')
+    """실시간 비디오 스트림 (UI 없음, 동영상만)"""
+    return render_template('stream_only.html')
 
 
 @app.route('/stream', methods=['GET'])
 def stream():
-    """실시간 MJPEG 스트림"""
+    """실시간 MJPEG 스트림 데이터"""
     return api_handlers.get_stream()
 
 
 @app.route('/viewer', methods=['GET'])
 def viewer():
-    """라이브 스트림 뷰어 페이지 (legacy)"""
+    """라이브 스트림 뷰어 페이지 (UI 포함)"""
     return render_template('livestream.html')
 
 
