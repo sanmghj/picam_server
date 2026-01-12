@@ -70,7 +70,7 @@ class CameraManager:
             self.fps = fps
 
         logger.info(f"Config updated: {self.width}x{self.height}@{self.fps}fps (stream: {self.stream_width}x{self.stream_height})")
-        }
+
 
     def start_recording(self):
         """녹화 시작"""
@@ -239,31 +239,41 @@ class CameraManager:
         try:
             # 스트리밍용 카메라 초기화
             self.stream_camera = Picamera2()
+
+            # 비디오 설정 (색상 및 화질 개선)
             config = self.stream_camera.create_video_configuration(
-                main={"size": (self.stream_width, self.stream_height)},
+                main={"size": (self.stream_width, self.stream_height), "format": "RGB888"},
                 transform=Transform(rotation=180)
             )
             self.stream_camera.configure(config)
+
+            # 자동 화이트 밸런스 및 노출 설정
+            self.stream_camera.set_controls({
+                "AwbEnable": True,  # 자동 화이트 밸런스
+                "AeEnable": True,   # 자동 노출
+            })
+
             self.stream_camera.start()
+            time.sleep(2)  # 카메라 안정화 대기
             self.streaming = True
 
             logger.info(f"Live stream started ({self.stream_width}x{self.stream_height})")
 
             # 프레임 생성 루프
             while self.streaming:
-                # 프레임 캡처
-                frame = self.stream_camera.capture_array()
+                try:
+                    # JPEG로 직접 캡처 (Picamera2의 네이티브 방식)
+                    buffer = io.BytesIO()
+                    self.stream_camera.capture_file(buffer, format='jpeg')
+                    frame_bytes = buffer.getvalue()
 
-                # JPEG로 인코딩
-                import cv2
-                _, jpeg = cv2.imencode('.jpg', frame)
-                frame_bytes = jpeg.tobytes()
+                    # MJPEG 형식으로 전송
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
 
-                # MJPEG 형식으로 전송
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-
-                time.sleep(0.033)  # ~30fps
+                except Exception as e:
+                    logger.error(f"Frame capture error: {e}")
+                    continue
 
         except Exception as e:
             logger.error(f"Stream error: {e}", exc_info=True)
