@@ -226,20 +226,20 @@ class APIHandlers:
             logger.error(f"[/test] Camera test failed: {e}", exc_info=True)
             return jsonify({"error": str(e)}), 500
 
-    def livestream(self):
-        """실시간 카메라 스트리밍"""
-        logger.info(f"[/livestream] Request received from {request.remote_addr}")
+    def get_stream(self):
+        """실시간 카메라 스트림 (MJPEG)"""
+        logger.info(f"[/stream] Request received from {request.remote_addr}")
 
         if self.camera_manager.is_recording():
-            logger.warning(f"[/livestream] Request rejected - recording in progress")
+            logger.warning(f"[/stream] Request rejected - recording in progress")
             return jsonify({"error": "stop recording first"}), 400
 
         try:
-            logger.info(f"[/livestream] Starting live stream for {request.remote_addr}")
+            logger.info(f"[/stream] Starting live stream for {request.remote_addr}")
             return Response(
                 self.camera_manager.generate_stream(),
                 mimetype='multipart/x-mixed-replace; boundary=frame'
             )
         except Exception as e:
-            logger.error(f"[/livestream] Stream failed: {e}", exc_info=True)
+            logger.error(f"[/stream] Stream failed: {e}", exc_info=True)
             return jsonify({"error": str(e)}), 500
