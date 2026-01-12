@@ -31,6 +31,7 @@ class CameraManager:
         # 스트리밍 관련
         self.streaming = False
         self.stream_camera = None
+        self.stream_lock = False  # 카메라 초기화 중 플래그
 
         # 기본 설정
         self.width = 1280
@@ -233,46 +234,60 @@ class CameraManager:
         return output_path
 
     def generate_stream(self):
-        """실시간 MJPEG 스트림 생성"""
+        """실시간 MJPEG 스트림 생성 (멀티 클라이언트 지원)"""
         logger.info("Starting live stream")
 
         try:
-            # 기존 스트림 카메라가 있으면 정리
-            if self.stream_camera is not None:
-                logger.warning("Cleaning up previous stream camera")
+            # 카메라가 아직 없거나 초기화 중이 아니면 카메라 시작
+            if self.stream_camera is None and not self.stream_lock:
+                self.stream_lock = True
                 try:
-                    self.stream_camera.stop()
-                    self.stream_camera.close()
-                except Exception as e:
-                    logger.error(f"Error cleaning previous camera: {e}")
+                    logger.info("Initializing stream camera")
+
+                    # 스트리밍용 카메라 초기화
+                    self.stream_camera = Picamera2()
+
+                    # 비디오 설정 (색상 및 화질 개선)
+                    config = self.stream_camera.create_video_configuration(
+                        main={"size": (self.stream_width, self.stream_height), "format": "RGB888"},
+                        transform=Transform(rotation=180)
+                    )
+                    self.stream_camera.configure(config)
+
+                    # 자동 화이트 밸런스 및 노출 설정
+                    self.stream_camera.set_controls({
+                        "AwbEnable": True,  # 자동 화이트 밸런스
+                        "AeEnable": True,   # 자동 노출
+                    })
+
+                    self.stream_camera.start()
+                    time.sleep(2)  # 카메라 안정화 대기
+                    self.streaming = True
+
+                    logger.info(f"Live stream camera initialized ({self.stream_width}x{self.stream_height})")
                 finally:
-                    self.stream_camera = None
+                    self.stream_lock = False
+            else:
+                # 카메라가 이미 있으면 초기화 대기
+                wait_count = 0
+                while self.stream_lock and wait_count < 50:  # 최대 5초 대기
+                    time.sleep(0.1)
+                    wait_count += 1
 
-            # 스트리밍용 카메라 초기화
-            self.stream_camera = Picamera2()
+                if self.stream_camera is None:
+                    logger.error("Failed to initialize camera within timeout")
+                    return
 
-            # 비디오 설정 (색상 및 화질 개선)
-            config = self.stream_camera.create_video_configuration(
-                main={"size": (self.stream_width, self.stream_height), "format": "RGB888"},
-                transform=Transform(rotation=180)
-            )
-            self.stream_camera.configure(config)
-
-            # 자동 화이트 밸런스 및 노출 설정
-            self.stream_camera.set_controls({
-                "AwbEnable": True,  # 자동 화이트 밸런스
-                "AeEnable": True,   # 자동 노출
-            })
-
-            self.stream_camera.start()
-            time.sleep(2)  # 카메라 안정화 대기
-            self.streaming = True
-
-            logger.info(f"Live stream started ({self.stream_width}x{self.stream_height})")
+                logger.info("Reusing existing stream camera")
 
             # 프레임 생성 루프
-            while self.streaming:
+            while self.streaming and self.stream_camera is not None:
                 try:
+                    # 카메라 객체가 None이 아닌지 다시 확인
+                    if self.stream_camera is None:
+                        logger.warning("Stream camera became None during operation")
+                        break
+
                     # JPEG로 직접 캡처 (Picamera2의 네이티브 방식)
                     buffer = io.BytesIO()
                     self.stream_camera.capture_file(buffer, format='jpeg')
@@ -289,8 +304,9 @@ class CameraManager:
                 except Exception as e:
                     logger.error(f"Frame capture error: {e}")
                     # 에러가 계속되면 중단
-                    if not self.streaming:
+                    if not self.streaming or self.stream_camera is None:
                         break
+                    time.sleep(0.1)  # 에러 시 잠시 대기
                     continue
 
         except RuntimeError as e:
@@ -303,8 +319,7 @@ class CameraManager:
         except Exception as e:
             logger.error(f"Stream error: {e}", exc_info=True)
         finally:
-            self.stop_stream()
-            logger.info("Stream generator finished")
+            logger.info("Stream generator finished for this client")
 
     def _force_cleanup_camera(self):
         """카메라 강제 정리"""
@@ -339,7 +354,7 @@ class CameraManager:
             logger.error(f"Force cleanup error: {e}")
 
     def stop_stream(self):
-        """스트림 중지"""
+        """스트림 중지 (모든 클라이언트가 종료되면 카메라 정리)"""
         self.streaming = False
 
         if self.stream_camera:
@@ -352,7 +367,25 @@ class CameraManager:
                 logger.error(f"Error stopping stream camera: {e}")
             finally:
                 self.stream_camera = None
+                self.stream_lock = False
                 logger.info("Live stream stopped")
+
+    def force_stop_stream(self):
+        """스트림 강제 종료 (API 호출용)"""
+        logger.info("Force stopping stream")
+        self.streaming = False
+
+        if self.stream_camera:
+            try:
+                self.stream_camera.stop()
+                self.stream_camera.close()
+            except Exception as e:
+                logger.error(f"Error force stopping stream: {e}")
+            finally:
+                self.stream_camera = None
+                self.stream_lock = False
+
+        logger.info("Stream force stopped")
 
     def is_streaming(self):
         """스트리밍 중인지 확인"""

@@ -243,3 +243,15 @@ class APIHandlers:
         except Exception as e:
             logger.error(f"[/stream] Stream failed: {e}", exc_info=True)
             return jsonify({"error": str(e)}), 500
+
+    def stop_stream(self):
+        """스트림 강제 종료"""
+        logger.info(f"[/stopstream] Request received from {request.remote_addr}")
+
+        try:
+            self.camera_manager.force_stop_stream()
+            logger.info(f"[/stopstream] Stream stopped successfully")
+            return jsonify({"status": 0, "msg": "stream stopped"}), 200
+        except Exception as e:
+            logger.error(f"[/stopstream] Failed to stop stream: {e}", exc_info=True)
+            return jsonify({"status": 1, "msg": str(e)}), 500

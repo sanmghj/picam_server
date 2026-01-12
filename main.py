@@ -83,6 +83,12 @@ def stream():
     return api_handlers.get_stream()
 
 
+@app.route('/stopstream', methods=['POST'])
+def stop_stream():
+    """스트림 강제 종료"""
+    return api_handlers.stop_stream()
+
+
 @app.route('/viewer', methods=['GET'])
 def viewer():
     """라이브 스트림 뷰어 페이지 (UI 포함)"""
