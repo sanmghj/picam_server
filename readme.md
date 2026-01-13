@@ -28,9 +28,7 @@ sudo apt update && sudo apt install -y \
   python3-libcamera \
   python3-flask \
   ffmpeg \
-  libcamera-apps \
-  python3-opencv \
-  python3-numpy
+  libcamera-apps
 ```
 
 ## 서버 실행

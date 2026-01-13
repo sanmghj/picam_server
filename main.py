@@ -16,59 +16,57 @@ logger = logging.getLogger(__name__)
 # Flask 앱 초기화
 app = Flask(__name__)
 
-# 카메라 매니저 및 API 핸들러 초기화
+# 카메라 매니저 초기화
 camera_manager = CameraManager(video_dir="video")
-api_handlers = APIHandlers(camera_manager)
-
 
 # ===== Flask 라우트 정의 =====
 
 @app.route('/start', methods=['POST'])
 def start_recording():
     """녹화 시작"""
-    return api_handlers.start_recording()
+    return APIHandlers.start_recording(camera_manager)
 
 
 @app.route('/stop', methods=['POST'])
 def stop_recording():
     """녹화 중지"""
-    return api_handlers.stop_recording()
+    return APIHandlers.stop_recording(camera_manager)
 
 
 @app.route('/download', methods=['GET'])
 def download_video():
     """MP4 변환된 파일 다운로드"""
-    return api_handlers.download_video()
+    return APIHandlers.download_video(camera_manager)
 
 
 @app.route('/download/raw', methods=['GET'])
 def download_raw_video():
     """H264 원본 파일 다운로드"""
-    return api_handlers.download_raw_video()
+    return APIHandlers.download_raw_video(camera_manager)
 
 
 @app.route('/getconfig', methods=['GET'])
 def get_config():
     """현재 설정 조회"""
-    return api_handlers.get_config()
+    return APIHandlers.get_config(camera_manager)
 
 
 @app.route('/setconfig', methods=['POST'])
 def set_config():
     """설정 변경"""
-    return api_handlers.set_config()
+    return APIHandlers.set_config(camera_manager)
 
 
 @app.route('/status', methods=['GET'])
 def get_status():
     """현재 상태 조회"""
-    return api_handlers.get_status()
+    return APIHandlers.get_status(camera_manager)
 
 
 @app.route('/test', methods=['GET'])
 def test_camera():
     """카메라 테스트"""
-    return api_handlers.test_camera()
+    return APIHandlers.test_camera(camera_manager)
 
 
 @app.route('/livestream', methods=['GET'])
@@ -80,13 +78,13 @@ def livestream():
 @app.route('/stream', methods=['GET'])
 def stream():
     """실시간 MJPEG 스트림 데이터"""
-    return api_handlers.get_stream()
+    return APIHandlers.get_stream(camera_manager)
 
 
 @app.route('/stopstream', methods=['POST'])
 def stop_stream():
     """스트림 강제 종료"""
-    return api_handlers.stop_stream()
+    return APIHandlers.stop_stream(camera_manager)
 
 
 @app.route('/viewer', methods=['GET'])

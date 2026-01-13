@@ -9,6 +9,7 @@ import subprocess
 import time
 import logging
 import io
+import gc
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -38,10 +39,6 @@ class CameraManager:
         self.height = 720
         self.fps = 30
 
-        # 스트리밍 해상도 (기본값은 녹화 해상도와 동일)
-        self.stream_width = 1280
-        self.stream_height = 720
-
     def is_recording(self):
         """녹화 중인지 확인"""
         return self.recording
@@ -63,17 +60,15 @@ class CameraManager:
 
         if width is not None:
             self.width = width
-            self.stream_width = width  # 스트리밍 해상도도 함께 변경
         if height is not None:
             self.height = height
-            self.stream_height = height  # 스트리밍 해상도도 함께 변경
         if fps is not None:
             self.fps = fps
 
-        logger.info(f"Config updated: {self.width}x{self.height}@{self.fps}fps (stream: {self.stream_width}x{self.stream_height})")
+        logger.info(f"Config updated: {self.width}x{self.height}@{self.fps}fps")
 
 
-    def start_recording(self):
+    def start_recording_session(self):
         """녹화 시작"""
         if self.recording:
             raise ValueError("Already recording")
@@ -84,7 +79,13 @@ class CameraManager:
 
         logger.info(f"Initializing camera with config: {self.width}x{self.height}@{self.fps}fps")
 
-        self.camera = Picamera2()
+        # 카메라가 없으면 생성, 있으면 재사용
+        if self.camera is None:
+            self.camera = Picamera2()
+            logger.info("Created new Picamera2 instance for recording")
+        else:
+            logger.info("Reusing existing Picamera2 instance for recording")
+
         config = self.camera.create_video_configuration(
             main={"size": (self.width, self.height)},
             transform=Transform(rotation=180)
@@ -98,6 +99,28 @@ class CameraManager:
         self.recording = True
 
         logger.info(f"Recording started at {datetime.fromtimestamp(self.recording_start_time).strftime('%Y-%m-%d %H:%M:%S')}")
+
+    def start_recording_thread(self):
+        """스레드에서 녹화를 시작하고 완료까지 관리"""
+        import threading
+
+        def record_video_thread():
+            try:
+                self.start_recording_session()
+
+                # 녹화가 중지될 때까지 대기
+                while self.is_recording():
+                    time.sleep(0.1)
+
+                # 녹화 종료 후 정리 및 변환
+                self.finalize_recording()
+
+            except Exception as e:
+                logger.error(f"Video recording error: {e}", exc_info=True)
+                self.cleanup()
+
+        threading.Thread(target=record_video_thread, daemon=True).start()
+        time.sleep(0.5)  # 카메라 초기화 대기
 
     def request_stop(self):
         """녹화 중지 요청 (플래그만 설정)"""
@@ -121,7 +144,8 @@ class CameraManager:
 
         try:
             self.camera.stop_recording()
-            self.camera.close()
+            self.camera.stop()  # 녹화 중지하되 인스턴스는 유지
+            logger.info("Camera stopped (instance preserved for reuse)")
         except Exception as e:
             logger.error(f"Error stopping camera: {e}")
 
@@ -212,8 +236,10 @@ class CameraManager:
 
         if self.camera:
             try:
+                self.camera.stop()
                 self.camera.close()
-                logger.info("Camera closed")
+                self.camera = None
+                logger.info("Camera closed and released")
             except Exception as e:
                 logger.error(f"Error closing camera: {e}")
 
@@ -249,7 +275,7 @@ class CameraManager:
 
                     # 비디오 설정 (색상 및 화질 개선)
                     config = self.stream_camera.create_video_configuration(
-                        main={"size": (self.stream_width, self.stream_height), "format": "RGB888"},
+                        main={"size": (self.width, self.height), "format": "RGB888"},
                         transform=Transform(rotation=180)
                     )
                     self.stream_camera.configure(config)
@@ -264,7 +290,7 @@ class CameraManager:
                     time.sleep(2)  # 카메라 안정화 대기
                     self.streaming = True
 
-                    logger.info(f"Live stream camera initialized ({self.stream_width}x{self.stream_height})")
+                    logger.info(f"Live stream camera initialized ({self.width}x{self.height})")
                 finally:
                     self.stream_lock = False
             else:
@@ -281,7 +307,13 @@ class CameraManager:
                 logger.info("Reusing existing stream camera")
 
             # 프레임 생성 루프
+            frame_count = 0
+            gc_interval = 300  # 300프레임마다 GC 실행 (30fps 기준 10초)
+            total_buffer_size = 0  # 누적 버퍼 사용량
+            buffer_log_interval = 900  # 900프레임마다 버퍼 통계 로깅 (30초)
+
             while self.streaming and self.stream_camera is not None:
+                buffer = None  # 명시적 초기화
                 try:
                     # 카메라 객체가 None이 아닌지 다시 확인
                     if self.stream_camera is None:
@@ -293,9 +325,35 @@ class CameraManager:
                     self.stream_camera.capture_file(buffer, format='jpeg')
                     frame_bytes = buffer.getvalue()
 
+                    # 버퍼 크기 추적
+                    buffer_size = len(frame_bytes)
+                    total_buffer_size += buffer_size
+
+                    buffer.close()  # 명시적 메모리 해제
+                    buffer = None
+
                     # MJPEG 형식으로 전송
                     yield (b'--frame\r\n'
                            b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+
+                    frame_count += 1
+
+                    # 주기적 버퍼 통계 로깅
+                    if frame_count % buffer_log_interval == 0:
+                        avg_buffer_size = total_buffer_size / buffer_log_interval
+                        logger.info(f"Buffer stats - Frames: {frame_count}, Avg size: {avg_buffer_size/1024:.1f}KB, Last: {buffer_size/1024:.1f}KB")
+                        total_buffer_size = 0  # 통계 리셋
+
+                    # 주기적 가비지 컬렉션 강제 실행
+                    if frame_count % gc_interval == 0:
+                        collected = gc.collect()
+                        logger.debug(f"GC executed at frame {frame_count}, collected {collected} objects")
+
+                    # 30분마다 메모리 상태 로깅
+                    if frame_count % 54000 == 0:  # 30fps * 60s * 30m
+                        import psutil
+                        mem = psutil.virtual_memory()
+                        logger.info(f"Memory usage: {mem.percent}% (Available: {mem.available / 1024 / 1024:.1f}MB, Used: {mem.used / 1024 / 1024:.1f}MB)")
 
                 except GeneratorExit:
                     # 클라이언트 연결 종료
@@ -308,6 +366,13 @@ class CameraManager:
                         break
                     time.sleep(0.1)  # 에러 시 잠시 대기
                     continue
+                finally:
+                    # 예외 발생 시에도 buffer 해제 보장
+                    if buffer is not None:
+                        try:
+                            buffer.close()
+                        except:
+                            pass
 
         except RuntimeError as e:
             if "Device or resource busy" in str(e):
