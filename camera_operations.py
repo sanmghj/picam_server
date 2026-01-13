@@ -108,9 +108,45 @@ class CameraManager:
             try:
                 self.start_recording_session()
 
+                # 메모리 관리를 위한 카운터 (8GB RAM 최적화)
+                loop_count = 0
+                gc_interval = 3000  # 5분마다 GC 실행 (0.1초 * 3000)
+                mem_log_interval = 6000  # 10분마다 메모리 로깅 (0.1초 * 6000)
+
                 # 녹화가 중지될 때까지 대기
                 while self.is_recording():
                     time.sleep(0.1)
+                    loop_count += 1
+
+                    # 주기적 가비지 컬렉션
+                    if loop_count % gc_interval == 0:
+                        collected = gc.collect()
+                        logger.debug(f"Recording GC: collected {collected} objects at {self.get_recording_duration():.1f}s")
+
+                    # 주기적 메모리 모니터링
+                    if loop_count % mem_log_interval == 0:
+                        try:
+                            import psutil
+                            mem = psutil.virtual_memory()
+                            duration = self.get_recording_duration()
+
+                            # H264 파일 크기 확인
+                            h264_size = 0
+                            if os.path.exists(self.temp_path):
+                                h264_size = os.path.getsize(self.temp_path)
+
+                            logger.info(f"Recording status - Duration: {duration/60:.1f}min, "
+                                      f"H264 size: {h264_size/1024/1024:.1f}MB, "
+                                      f"Memory: {mem.percent}% (Available: {mem.available/1024/1024:.1f}MB)")
+
+                            # 라즈베리파이4 8GB 메모리 임계치 경고
+                            if mem.percent > 90:
+                                logger.warning(f"⚠️ Very high memory usage: {mem.percent}% - Forcing GC")
+                                gc.collect()
+                            elif mem.percent > 80:
+                                logger.info(f"Memory usage high: {mem.percent}%")
+                        except Exception as e:
+                            logger.warning(f"Failed to log recording status: {e}")
 
                 # 녹화 종료 후 정리 및 변환
                 self.finalize_recording()
@@ -287,7 +323,7 @@ class CameraManager:
                     })
 
                     self.stream_camera.start()
-                    time.sleep(2)  # 카메라 안정화 대기
+                    time.sleep(3)  # 카메라 안정화 대기 (GPU 초기화 완료)
                     self.streaming = True
 
                     logger.info(f"Live stream camera initialized ({self.width}x{self.height})")
@@ -306,11 +342,11 @@ class CameraManager:
 
                 logger.info("Reusing existing stream camera")
 
-            # 프레임 생성 루프
+            # 프레임 생성 루프 (8GB RAM 최적화)
             frame_count = 0
-            gc_interval = 300  # 300프레임마다 GC 실행 (30fps 기준 10초)
+            gc_interval = 1800  # 1800프레임마다 GC 실행 (30fps 기준 60초)
             total_buffer_size = 0  # 누적 버퍼 사용량
-            buffer_log_interval = 900  # 900프레임마다 버퍼 통계 로깅 (30초)
+            buffer_log_interval = 1800  # 1800프레임마다 버퍼 통계 로깅 (60초)
 
             while self.streaming and self.stream_camera is not None:
                 buffer = None  # 명시적 초기화
