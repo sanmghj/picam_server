@@ -70,6 +70,7 @@ class CameraManager:
     def get_config(self):
         """현재 카메라 설정 반환"""
         return {
+            "format": self.video_format,
             "resolution": f"{self.width}x{self.height}",
             "fps": self.fps
         }
@@ -79,6 +80,22 @@ class CameraManager:
         if self.recording:
             raise ValueError("Already recording")
 
+        # 스트리밍 중이면 녹화 불가
+        if self.streaming:
+            raise RuntimeError("Cannot start recording while streaming is active. Stop streaming first.")
+
+        # 스트리밍 카메라가 살아있으면 정리
+        if self.stream_camera is not None:
+            logger.warning("Stream camera still active, cleaning up before recording")
+            try:
+                self.stream_camera.stop()
+                self.stream_camera.close()
+            except:
+                pass
+            finally:
+                self.stream_camera = None
+                time.sleep(0.5)  # 리소스 해제 대기
+
         if not os.path.exists(self.video_dir):
             os.mkdir(self.video_dir)
             logger.info(f"Created video directory: {self.video_dir}")
@@ -87,8 +104,17 @@ class CameraManager:
 
         # 카메라가 없으면 생성, 있으면 재사용
         if self.camera is None:
-            self.camera = Picamera2()
-            logger.info("Created new Picamera2 instance for recording")
+            try:
+                self.camera = Picamera2()
+                logger.info("Created new Picamera2 instance for recording")
+            except RuntimeError as e:
+                if "Device or resource busy" in str(e):
+                    logger.error("Camera resource busy - attempting cleanup")
+                    self._force_cleanup_camera()
+                    time.sleep(1)
+                    self.camera = Picamera2()
+                else:
+                    raise
         else:
             logger.info("Reusing existing Picamera2 instance for recording")
 
@@ -304,6 +330,14 @@ class CameraManager:
     def generate_stream(self):
         """실시간 MJPEG 스트림 생성 (멀티 클라이언트 지원)"""
         logger.info("Starting live stream")
+
+        # 녹화 중이면 스트리밍 불가
+        if self.recording:
+            logger.error("Cannot start streaming while recording is active")
+            yield (b'--frame\r\n'
+                   b'Content-Type: text/plain\r\n\r\n'
+                   b'Error: Recording in progress. Stop recording first.\r\n')
+            return
 
         try:
             # 카메라가 아직 없거나 초기화 중이 아니면 카메라 시작

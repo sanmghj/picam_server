@@ -22,6 +22,14 @@ class APIHandlers:
 
         if not camera_manager.is_recording():
             try:
+                # 스트리밍 중인지 확인
+                if camera_manager.is_streaming():
+                    logger.warning("[/start] Cannot start recording while streaming")
+                    return jsonify({
+                        "status": "error",
+                        "message": "Cannot start recording while streaming is active. Stop streaming first."
+                    }), 409  # Conflict
+
                 # 카메라 매니저에서 스레드 실행
                 camera_manager.start_recording_thread()
 
@@ -38,7 +46,7 @@ class APIHandlers:
 
             except Exception as e:
                 logger.error(f"[/start] Failed to start recording: {e}", exc_info=True)
-                return jsonify({"status": 1, "msg": f"failed to start: {str(e)}"}), 500
+                return jsonify({"status": 1, "msg": "Failed to start recording"}), 500
 
         logger.warning(f"[/start] Request rejected - already recording")
         return jsonify({"status": 1, "msg": "already recording"}), 400
@@ -88,7 +96,7 @@ class APIHandlers:
                 return response
             except Exception as e:
                 logger.error(f"[/download] Error sending file: {e}", exc_info=True)
-                return jsonify({"status": 1, "msg": f"error sending file: {str(e)}"}), 500
+                return jsonify({"status": 1, "msg": "Error sending file"}), 500
 
         logger.warning(f"[/download] Request rejected - no video file exists")
         return jsonify({"status": 1, "msg": "no video"}), 400
@@ -119,7 +127,7 @@ class APIHandlers:
                 return response
             except Exception as e:
                 logger.error(f"[/download/raw] Error sending file: {e}", exc_info=True)
-                return jsonify({"status": 1, "msg": f"error sending file: {str(e)}"}), 500
+                return jsonify({"status": 1, "msg": "Error sending file"}), 500
 
         logger.warning(f"[/download/raw] Request rejected - no raw video file exists")
         return jsonify({"status": 1, "msg": "no raw video"}), 400
@@ -174,10 +182,10 @@ class APIHandlers:
 
         except ValueError as e:
             logger.warning(f"[/setconfig] Invalid config: {e}")
-            return jsonify({"error": str(e)}), 400
+            return jsonify({"error": "Invalid configuration"}), 400
         except Exception as e:
             logger.error(f"[/setconfig] Error: {e}", exc_info=True)
-            return jsonify({"error": str(e)}), 500
+            return jsonify({"error": "Failed to update configuration"}), 500
 
     @staticmethod
     def get_status(camera_manager):
@@ -212,7 +220,7 @@ class APIHandlers:
             return send_file(output_path, as_attachment=True)
         except Exception as e:
             logger.error(f"[/test] Camera test failed: {e}", exc_info=True)
-            return jsonify({"error": str(e)}), 500
+            return jsonify({"error": "Camera test failed"}), 500
 
     @staticmethod
     def get_stream(camera_manager):
@@ -231,7 +239,7 @@ class APIHandlers:
             )
         except Exception as e:
             logger.error(f"[/stream] Stream failed: {e}", exc_info=True)
-            return jsonify({"error": str(e)}), 500
+            return jsonify({"error": "Failed to start stream"}), 500
 
     @staticmethod
     def stop_stream(camera_manager):
@@ -244,4 +252,4 @@ class APIHandlers:
             return jsonify({"status": 0, "msg": "stream stopped"}), 200
         except Exception as e:
             logger.error(f"[/stopstream] Failed to stop stream: {e}", exc_info=True)
-            return jsonify({"status": 1, "msg": str(e)}), 500
+            return jsonify({"status": 1, "msg": "Failed to stop stream"}), 500
