@@ -67,6 +67,12 @@ class CameraManager:
 
         logger.info(f"Config updated: {self.width}x{self.height}@{self.fps}fps")
 
+    def get_config(self):
+        """현재 카메라 설정 반환"""
+        return {
+            "resolution": f"{self.width}x{self.height}",
+            "fps": self.fps
+        }
 
     def start_recording_session(self):
         """녹화 시작"""

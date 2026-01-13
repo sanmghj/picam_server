@@ -1,13 +1,14 @@
 #!/bin/bash
-# 라즈베리파이 시스템 모니터링 스크립트
+# 라즈베리파이 시스템 모니터링 스크립트 (GPU 256MB 환경)
 
 LOG_FILE="system_monitor_$(date +%Y%m%d_%H%M%S).log"
-DURATION=18000  # 5시간 (초)
-INTERVAL=300    # 5분마다 체크
+DURATION=${1:-18000}  # 기본 5시간 (초), 인자로 변경 가능
+INTERVAL=${2:-300}    # 기본 5분마다 체크, 인자로 변경 가능
 
-echo "=== System Monitoring Started ===" | tee -a "$LOG_FILE"
-echo "Duration: $((DURATION/3600)) hours" | tee -a "$LOG_FILE"
+echo "=== System Monitoring Started (GPU 256MB) ===" | tee -a "$LOG_FILE"
+echo "Duration: $((DURATION/3600)) hours ($(($DURATION/60)) minutes)" | tee -a "$LOG_FILE"
 echo "Check interval: $((INTERVAL/60)) minutes" | tee -a "$LOG_FILE"
+echo "GPU Memory: 256MB" | tee -a "$LOG_FILE"
 echo "" | tee -a "$LOG_FILE"
 
 start_time=$(date +%s)
