@@ -6,6 +6,31 @@ import logging
 from logging.handlers import TimedRotatingFileHandler
 
 
+# ========================================
+# 카메라 기본 설정 상수 (C의 #define과 유사)
+# ========================================
+
+# 비디오 디렉토리 및 파일 형식
+DEFAULT_VIDEO_DIR = "video"
+DEFAULT_VIDEO_FORMAT = "mp4"
+
+# 카메라 기본 설정
+DEFAULT_WIDTH = 1280
+DEFAULT_HEIGHT = 720
+DEFAULT_FPS = 30
+
+# 메모리 최적화 설정 (8GB RAM 기준)
+GC_INTERVAL_RECORDING = 3000      # 녹화: 5분마다 GC (0.1초 * 3000)
+GC_INTERVAL_STREAMING = 1800      # 스트리밍: 60초마다 GC (30fps * 60)
+MEM_LOG_INTERVAL_RECORDING = 6000 # 녹화: 10분마다 메모리 로깅
+MEM_LOG_INTERVAL_STREAMING = 54000 # 스트리밍: 30분마다 메모리 로깅
+BUFFER_LOG_INTERVAL = 1800        # 60초마다 버퍼 통계 로깅
+
+# 메모리 임계치 (퍼센트)
+MEMORY_WARNING_THRESHOLD = 80     # 경고 레벨
+MEMORY_CRITICAL_THRESHOLD = 90    # 위험 레벨
+
+
 def setup_logging(log_dir="log"):
     """로깅 설정 초기화"""
     if not os.path.exists(log_dir):
